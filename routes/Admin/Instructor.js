@@ -1,208 +1,168 @@
-const router = require("express").Router();
+const express = require("express");
+const router = express.Router();
 const conn = require("../../db/dbConnection");
-const admin = require("../../middleware/admin");
+const admin = require("../../middleware/Tokens/admin");
 const { body, validationResult } = require("express-validator");
-const util = require("util"); // helper
+const util = require("util");
 const crypto = require("crypto");
 const bcrypt = require("bcrypt");
 
+const promisifiedQuery = util.promisify(conn.query).bind(conn);
 
-
-
-// CREATE INSTRUCTOR [ ADMIN ]
+// CREATE INSTRUCTOR [ADMIN]
 router.post(
-    "",
-    admin,
-    body("email")
-        .isEmail()
-        .withMessage("please enter a valid email!"),
+  "",
+  admin,
+  body("email").isEmail().withMessage("Please enter a valid email!"),
+  body("name")
+    .isString()
+    .withMessage("Please enter a valid name")
+    .isLength({ min: 3, max: 20 })
+    .withMessage("Name should be between 3 and 20 characters"),
+  body("password")
+    .isLength({ min: 8, max: 12 })
+    .withMessage("Password should be between 8 and 12 characters"),
+  body("phone")
+    .isLength({ min: 10, max: 11 })
+    .withMessage("Phone number is required"),
+  body("status")
+    .isNumeric()
+    .withMessage("Status should be active or inactive"),
+    
+  async (req, res) => {
+    try {
+      const errors = validationResult(req); // manual, express validation
+      if (!errors.isEmpty()) {
+        return res.status(400).json({ errors: errors.array() });
+      }
 
+      const checkEmailExists = await promisifiedQuery(
+        "SELECT * FROM users WHERE email = ?",
+        [req.body.email]
+      ); 
 
-    body("name")
-        .isString()
-        .withMessage("please enter a valid name")
-        .isLength({ min: 3, max: 20 })
-        .withMessage("name should be between (3-20) character"),
+      if (checkEmailExists.length > 0) {
+        return res.status(400).json({
+          errors: [
+            {
+              msg: "Email already exists!",
+            },
+          ],
+        });
+      }
 
+      const instructor = {
+        name: req.body.name,
+        email: req.body.email,
+        password: await bcrypt.hash(req.body.password, 10),
+        roleId: 2,
+        phone: req.body.phone,
+        token: crypto.randomBytes(16).toString("hex"),
+      }; 
 
-    body("password")
-        .isLength({ min: 8, max: 12 })
-        .withMessage("password should be between (8-12) character"),
+      await promisifiedQuery("INSERT INTO users SET ?", instructor); // insert instructor into database
 
-
-    body("phone")
-        .isLength({ min: 10, max: 11 })
-        .withMessage("Phone should be enter"),
-
-    async (req, res) => {
-        try {
-            // 1- VALIDATION REQUEST [manual, express validation]
-            const errors = validationResult(req);
-            if (!errors.isEmpty()) {
-                return res.status(400).json({ errors: errors.array() });
-            }
-            // 2- CHECK IF EMAIL EXISTS
-            const query = util.promisify(conn.query).bind(conn); // transform query mysql --> promise to use [await/async]
-            const checkEmailExists = await query(
-                "select * from users where email = ?",
-                [req.body.email]
-            );
-            if (checkEmailExists.length > 0) {
-                res.status(400).json({
-                    errors: [
-                        {
-                            msg: "email already exists !",
-                        },
-                    ],
-                });
-            } 
-
-            // 3- PREPARE INSTRUCTOR OBJECT
-            const instructors = {
-                name: req.body.name,
-                email: req.body.email,
-                password: await bcrypt.hash(req.body.password, 10),
-                roleId: 2,
-                phone: req.body.phone,
-                token: crypto.randomBytes(16).toString("hex"), // JSON WEB TOKEN, CRYPTO -> RANDOM ENCRYPTION STANDARD
-            };
-
-
-            // 4 - INSERT INSTRUCTOR INTO DB
-            await query("insert into users set ? ", instructors);
-
-            res.status(200).json({
-                msg: "CREATE INSTRUCTOR SUCCESSFULY :)",
-            });
-
-        } catch (err) {
-            console.log(err);
-            res.status(500).json(err);
-        }
-
-    });
-
-
+      res.status(200).json({
+        msg: "Instructor created successfully :)",
+      });
+    } catch (error) {
+      console.log(error);
+      res.status(500).json(error);
+    }
+  }
+);
 
 // UPDATE INSTRUCTOR [ ADMIN ]
 router.put(
-    "/:id", // PARAMS
+    "/:id",
     admin,
-    body("email")
-        .isEmail()
-        .withMessage("please enter a valid email!"),
-
-
-    body("name")
+    [
+      body("email").isEmail().withMessage("Please enter a valid email!"),
+      body("name")
         .isString()
-        .withMessage("please enter a valid name")
+        .withMessage("Please enter a valid name")
         .isLength({ min: 3, max: 20 })
-        .withMessage("name should be between (3-20) character"),
-
-
-    body("password")
+        .withMessage("Name should be between 3 and 20 characters"),
+      body("password")
         .isLength({ min: 8, max: 12 })
-        .withMessage("password should be between (8-12) character"),
-
-
-    body("phone")
-        .isLength({ min: 10, max: 11 })
-        .withMessage("Phone should be enter"),
-
-
-
-
-
+        .withMessage("Password should be between 8 and 12 characters"),
+      body("phone").isLength({ min: 10, max: 11 }).withMessage("Please enter a valid phone number"),
+      body("status")
+      .isNumeric()
+      .withMessage("Status should be active or inactive")
+   ],
     async (req, res) => {
-        try {
-            // 1- VALIDATION REQUEST [manual, express validation]
-            const query = util.promisify(conn.query).bind(conn);
-            const errors = validationResult(req);
-            if (!errors.isEmpty()) {
-                return res.status(400).json({ errors: errors.array() });
-            }
-
-
-
-            // 2- CHECK IF INSTRUCTOR EXISTS OR NOT
-            const instractors = await query("select * from users where roleId = 2 and id = ?", [
-                req.params.id,
-            ]);
-            if (!instractors[0]) {
-                res.status(404).json({ msg: "instructor not found !" });
-            } 
-
-
-            // 3- PREPARE INSTRUCTOR OBJECT
-            const instractorObj = {
-                name: req.body.name,
-                email: req.body.email,
-                password: await bcrypt.hash(req.body.password, 10), 
-                phone: req.body.phone,
-                token: crypto.randomBytes(16).toString("hex"), // JSON WEB TOKEN, CRYPTO -> RANDOM ENCRYPTION STANDARD
-            };
-
-
-            // 4- UPDATE INSTRUCTOR
-            await query("update users set ? where id = ?", [
-                instractorObj,
-                instractors[0].id
-            ]);
-
-            res.status(200).json({
-                msg: "UPDATE INSTRUCTOR SUCCESSFULY :)",
-            });
-
-        } catch (err) {
-            res.status(500).json(err);
-            console.log(err);
+      try {
+        const errors = validationResult(req);
+        if (!errors.isEmpty()) {
+          return res.status(400).json({ errors: errors.array() });
         }
-
-    });
-
-
+  
+        const instructor = await promisifiedQuery("SELECT * FROM users WHERE roleId = 2 AND id = ?", [req.params.id]);
+        if (!instructor[0]) {
+          return res.status(404).json({ msg: "Instructor not found" });
+        }
+  
+        const instructorObj = {
+          name: req.body.name,
+          email: req.body.email,
+          password: await bcrypt.hash(req.body.password, 10),
+          phone: req.body.phone,
+          token: crypto.randomBytes(16).toString("hex"),
+          status: req.body.status,
+        };
+  
+        await promisifiedQuery("UPDATE users SET ? WHERE id = ?", [instructorObj, instructor[0].id]);
+  
+        res.status(200).json({ msg: "Update instructor successfully" });
+      } catch (err) {
+        console.log(err);
+        res.status(500).json(err);
+      }
+    }
+  );
+  
 
 
 // DELETE INSTRUCTOR [ ADMIN ]
-router.delete(
-    "/:id", // PARAMS
-    admin,
-    async (req, res) => {
-        try {
-            // 1- CHECK IF INSTRUCTOR EXISTS OR NOT
-            const query = util.promisify(conn.query).bind(conn);
-            const instructors = await query("select * from users where roleId = 2 and id = ?", [
-                req.params.id,
-            ]);
-            if (!instructors[0]) {
-                res.status(404).json({ msg: "instructor not found !" });
-            }
+router.delete("/:id", admin, async (req, res) => {
+    try {
 
-            // 2- REMOVE INSTRUCTOR IMAGE
-            await query("delete from users where id = ?", [instructors[0].id]);
-            res.status(200).json({
-                msg: "DELETE INSTRUCTOR SUCCESSFULY :)",
-            });
-
-        } catch (err) {
-            res.status(500).json(err);
-            console.log(err);
-        }
-    });
+      const instructors = await promisifiedQuery("SELECT * FROM users WHERE roleId = 2 AND id = ?", [
+        req.params.id,
+      ]);
+  
+      if (!instructors[0]) {
+        return res.status(404).json({ msg: "Instructor not found!" });
+      }
+  
+      await promisifiedQuery("DELETE FROM users WHERE id = ?", [instructors[0].id]);
+  
+      res.status(200).json({
+        msg: "Instructor deleted successfully.",
+      });
+    } catch (err) {
+      console.log(err);
+      res.status(500).json(err);
+    }
+  });
 
 
-
-// LIST INSTRUCTOR
+// LIST INSTRUCTOR 
 router.get("", async (req, res) => {
-        const query = util.promisify(conn.query).bind(conn);
-        let search = "";
-        if(req.query.search){
-            search = `where name LIKE '%${req.query.search}%' or code LIKE '%${req.query.search}%'`;
-        }
-        const instructor = await query(`select id, name, email, phone, status, roleId from users where roleId = 2 ${search}`);
-        res.status(200).json(instructor);
-    });
-
+    try {
+      const query = util.promisify(conn.query).bind(conn);
+      let search = "";
+      if (req.query.search) {
+        search = `where name LIKE '%${req.query.search}%' or code LIKE '%${req.query.search}%'`;
+      }
+      const instructors = await query(`select id, name, email, phone, status, roleId from users where roleId = 2 ${search}`);
+      res.status(200).json(instructors);
+    } catch (err) {
+      console.log(err);
+      res.status(500).json(err);
+    }
+  });
 
 
 module.exports = router;  

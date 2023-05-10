@@ -1,202 +1,49 @@
 const router = require("express").Router();
 const conn = require("../../db/dbConnection");
-const admin = require("../../middleware/admin");
-const { body, validationResult } = require("express-validator");
-const upload = require("../../middleware/uploadimages");
-const util = require("util"); // helper
-const fs = require("fs"); // file system
+const admin = require("../../middleware/Tokens/admin");
+const util = require("util");
+const CourseValidator = require("../../middleware/SOLID/Admin/Course/Create/CourseValidator");
+const CreateController = require("../../middleware/SOLID/Admin/Course/Create/CreateController");
+const UpdateCourseValidation = require("../../middleware/SOLID/Admin/Course/Update/UpdateCourseValidation");
+const UpdateController = require("../../middleware/SOLID/Admin/Course/Update/UpdateController");
+const CourseRouter = require('../../middleware/SOLID/Admin/Course/Delete/CourseRouter');
+const CourseListAndSearchRouter = require('../../middleware/SOLID/Admin/Course/List/CourseListAndSearchRouter');
+const courseListAndSearchRouter = new CourseListAndSearchRouter();
 
-
-
-
-// CREATE COURSE [ ADMIN ]
+// CREATE COURSE [ADMIN]
 router.post(
-    "",
-    admin,
-    upload.single("image"),
-    body("name")
-        .isString()
-        .withMessage("please enter a valid course name")
-        .isLength({ min: 10 })
-        .withMessage("course name should be at lease 10 characters"),
-
-
-    body("code")
-        .isString()
-        .withMessage("please enter a valid course code")
-        .isLength({ min: 5, max: 7 })
-        .withMessage("course description should be between(5-7) characters"),
-
-    body("description")
-        .isString()
-        .withMessage("please enter a valid course description")
-        .isLength({ min: 20 })
-        .withMessage("course description should be at lease 20 characters"),
-
-
-
-
-
-    async (req, res) => {
-        try {
-            // 1- VALIDATION REQUEST [manual, express validation]
-            const errors = validationResult(req);
-            if (!errors.isEmpty()) {
-                return res.status(400).json({ errors: errors.array() });
-            }
-
-            // 2- VALIDATE THE IMAGE
-            if (!req.file) {
-                return res.status(400).json({
-                    errors: [
-                        {
-                            msg: "Image is Required",
-                        },
-                    ],
-                });
-            }
-            // 3- PREPARE COURSES OBJECT
-            const course = {
-                name: req.body.name,
-                image: req.file.filename,
-                code: req.body.code,
-                description: req.body.description,
-            };
-
-
-            // 4 - INSERT COURSES INTO DB
-            const query = util.promisify(conn.query).bind(conn);
-            await query("insert into course set ? ", course);
-
-            res.status(200).json({
-                msg: "CREATE COURSE SUCCESSFULY :)",
-            });
-
-        } catch (err) {
-            //console.log(err);
-            res.status(500).json(err);
-        }
-
-    });
-
-
-
-// UPDATE COURSE [ ADMIN ]
-router.put(
-    "/:id", // PARAMS
-    admin,
-    upload.single("image"),
-    body("name")
-        .isString()
-        .withMessage("please enter a valid course name")
-        .isLength({ min: 10 })
-        .withMessage("course name should be at lease 10 characters"),
-
-
-    body("code")
-        .isString()
-        .withMessage("please enter a valid course code")
-        .isLength({ min: 5, max: 7 })
-        .withMessage("course description should be between(5-7) characters"),
-
-    body("description")
-        .isString()
-        .withMessage("please enter a valid course description")
-        .isLength({ min: 15 })
-        .withMessage("course description should be at lease 20 characters"),
-
-
-
-
-
-    async (req, res) => {
-        try {
-            // 1- VALIDATION REQUEST [manual, express validation]
-            const query = util.promisify(conn.query).bind(conn);
-            const errors = validationResult(req);
-            if (!errors.isEmpty()) {
-                return res.status(400).json({ errors: errors.array() });
-            }
-
-
- 
-            // 2- CHECK IF Course EXISTS OR NOT
-            const courses = await query("select * from course where id = ?", [
-                req.params.id,
-            ]);
-            if (!courses[0]) {
-                res.status(404).json({ msg: "course not found !" });
-            }
-
-
-            // 3- PREPARE COURSES OBJECT
-            const courseObj = {
-                name: req.body.name,
-                code: req.body.code,
-                description: req.body.description,
-            };
-            if (req.file) {
-                courseObj.image = req.file.filename;
-                // delete old image
-                fs.unlinkSync("./upload/" + courses[0].image);
-            }
-
-
-            // 4- UPDATE COURSES
-            await query("update course set ? where id = ?", [
-                courseObj,
-                courses[0].id
-            ]);
-
-            res.status(200).json({
-                msg: "UPDATE COURSE SUCCESSFULY :)",
-            });
-
-        } catch (err) {
-            res.status(500).json(err);
-        }
-
-    });
+  "",
+  admin,
+  CourseValidator.validateCreateCourse(),
+  CourseValidator.checkValidationResult,
+  CreateController.createCourse.bind(CreateController)
+  ); 
   
 
-// DELETE COURSE [ ADMIN ]
-router.delete(
-    "/:id", // PARAMS
-    admin,
-    async (req, res) => { 
-        try {
-            // 1- CHECK IF Course EXISTS OR NOT
-            const query = util.promisify(conn.query).bind(conn);
-            const courses = await query("select * from course where id = ?", [
-                req.params.id,
-            ]);
-            if (!courses[0]) {
-                res.status(404).json({ msg: "course not found !" });
-            }
 
-            // 2- REMOVE COURSE IMAGE
-            fs.unlinkSync("./upload/" + courses[0].image);// delete old image
-            await query("delete from course where id = ?", [courses[0].id]);
-            res.status(200).json({
-                msg: "DELETE COURSE SUCCESSFULY :)",
-            }); 
 
-        } catch (err) {
-            res.status(500).json(err);
-        }
-    });
 
- 
-// LIST & SEARCH [ ADMIN, USER ]
-router.get("", async (req, res) => {
-        const query = util.promisify(conn.query).bind(conn);
-        let search = "";
-        if(req.query.search){
-            search = `where id LIKE '%${req.query.search}%' or code LIKE '%${req.query.search}%'`;
-        }
-        const courses = await query(`select * from course ${search}`);
-        res.status(200).json(courses);
+// UPDATE COURSE [ADMIN]
+router.put("/:id", admin, UpdateCourseValidation.validate(), UpdateController.updateCourse);
 
-    });
- 
+
+
+
+
+
+// Delete course [ADMIN]
+const courseRouter = new CourseRouter(router);
+courseRouter.registerRoutes();
+
+
+
+
+
+// List and search [ADMIN, USER]
+const rout = courseListAndSearchRouter.registerRoutes();
+router.get("", rout);
+
+  
+
 module.exports = router;
+  
